@@ -1,3 +1,5 @@
+/* jshint sub:true */
+
 /**
  * Create a new VAST integration
  *
@@ -13,6 +15,7 @@ function VASTAdPlayer(debug) {
         insertionPointType: null,
         playbackPosition: null
     };
+    this.activeAd = null;
     this.adPlaying = false;
     this.adsEnabled = true;
     this.breaks = [];
@@ -135,24 +138,6 @@ VASTAdPlayer.prototype._onAdBreakFetched = function (i, position, ad) {
 };
 
 /**
- * Set meta data to send to Videoplaza when requesting ads
- *
- * TODO: Deal with this for VAST sources?
- *
- * @param {object} meta Meta data about the video being displayed
- * @param {string} meta.category Videoplaza Karbon content category for targeting
- * @param {string} meta.contentForm shortForm || longForm
- * @param {string} meta.contentId ID for the current video clip
- * @param {string} meta.contentPartner Videoplaza Karbon content partner for targeting
- * @param {Number} meta.duration Duration of the video clip in the player
- * @param {string[]} meta.tags Flags to override ad insertion policies
- * @param {string[]} meta.flags Content keywords for targeting
- */
-VASTAdPlayer.prototype.setContentMeta = function setContentMeta(meta) {
-    this.contentMeta = meta;
-};
-
-/**
  * Give information about the environment for the ad
  *
  * @param {Number} width Width of the video frame
@@ -265,10 +250,16 @@ VASTAdPlayer.prototype._release = function _release() {
 /**
  * Show the next ad in the last received list of ads
  *
+ * @param {VASTAd} [first] An initial ad if we're starting a new ad sequence
  * @return {boolean} Whether another ad was played or not
  */
-VASTAdPlayer.prototype._showNextAd = function _showNextAd() {
-    this.activeAd = this.activeAd.getNextAd();
+VASTAdPlayer.prototype._showNextAd = function _showNextAd(first) {
+    if (first instanceof VASTAd) {
+        this.activeAd = first;
+    } else {
+        this.activeAd = this.activeAd.getNextAd();
+    }
+
     if (!this.adsEnabled || this.activeAd === null) {
         this.log('no more ads');
 
@@ -280,22 +271,37 @@ VASTAdPlayer.prototype._showNextAd = function _showNextAd() {
         return false;
     }
 
+    if (!this.activeAd.hasData()) {
+        // TODO: Track impression here?
+        return this._showNextAd();
+    }
+
     this.log('showing next ad');
 
-    // TODO: Handle the different VAST creatives here
-    switch (this.ad.type) {
-        case 'standard_spot':
-            this.log('found standard spot');
-            this._displayAdCreatives(this.ad.creatives);
-            return true;
-        case 'inventory':
-            this.log('found inventory');
-            this.tracker.track(this.ad, this.trackingEvents.ad.impression);
-            return this._showNextAd();
-        default:
-            this._onVideoplazaError('ad format ' + this.ad.type + ' not supported');
-            return false;
+    this.adVideo = null;
+
+    // TODO: Adapt this for VAST
+    if (this.activeAd.linear) {
+        this.adVideo = this.activeAd.linear.getBestMedia(this.requestSettings);
+        this.log('found linear', this.adVideo);
     }
+
+    for (var i = 0; i < this.activeAd.companions.length; i++) {
+        var c = this.activeAd.companions[i];
+        this.log('found companion', c);
+        if (!this._showCompanionBanner(c)) {
+            this.logError("VASTAdPlayer error: no way of displaying companion ad");
+        }
+    }
+    // TODO: handle companionsRequired attribute
+
+    if (!this.adVideo) {
+        this.log("VASTAdPlayer warning: got ad without linear", this.activeAd);
+        return this._showNextAd();
+    }
+
+    this._playVideoAd();
+    return true;
 };
 
 /**
@@ -325,40 +331,6 @@ VASTAdPlayer.prototype._showCompanionBanner = function _showCompanionBanner(comp
 };
 
 /**
- * Display all the given creatives
- *
- * Will play the media file for the last Linear in the list, and call
- * showCompanion on every Companion
- *
- * @param {VASTAd} ad Ad to display contained creatives for
- */
-VASTAdPlayer.prototype._displayAdCreatives = function _displayAdCreatives(ad) {
-    this.adVideo = null;
-
-    // TODO: Adapt this for VAST
-    this.log('found ' + creatives.length + ' creatives for ad');
-    for (var i = 0, l = creatives.length; i < l; i++) {
-        if (creatives[i].id === 'video') {
-            this.log('found video creative', creatives[i]);
-            this.adVideo = creatives[i];
-        } else if (creatives[i].type === 'companion') {
-            this.log('found companion creative', creatives[i]);
-            if (!this._showCompanionBanner(creatives[i])) {
-                this.logError("Videoplaza error: no way of displaying companion ad");
-            }
-        }
-    }
-
-    if (!this.adVideo) {
-        this.logError("Videoplaza error: bad ad - no video", this.ad);
-        this._showNextAd();
-        return;
-    }
-
-    this._playVideoAd();
-};
-
-/**
  * Should be called if VASTAds encounters an error
  *
  * Will log an error message and resume normal video playback
@@ -375,29 +347,25 @@ VASTAdPlayer.prototype._onVASTError = function _onVASTError(message) {
  *
  * @param {string} insertionPoint The type of ad to fetch
  *      May be one of: start, position, end
- * @param {boolean} [includePosition] Whether to send the current video position
+ * @param {?VASTAd} ad The ad to run if already determined
  */
-VASTAdPlayer.prototype._runAds = function _runAds(insertionPoint, includePosition) {
+VASTAdPlayer.prototype._runAds = function _runAds(insertionPoint, ad) {
     this.player.pause();
     this._prepareAdPlayback();
     this.requestSettings.insertionPointType = insertionPoint;
 
-    if (includePosition) {
-        this.requestSettings.playbackPosition = this.player.currentTime;
-    } else {
-        this.requestSettings.playbackPosition = null;
+    this.activeAd = null;
+    switch (insertionPoint) {
+        case 'start':
+        case 'end':
+            // TODO: Find start/end ad
+            ad = null;
+            break;
+        case 'position':
+            break;
     }
-
-    // No need to fetch ads, we (hopefully) already have them at this point
-    // TODO: Make work.
-    this.ads = ads;
-    this.adIndex = -1;
-    this._showNextAd();
-
-    // Old.
-    var onSuccess = this._onAdsReceived.bind(this);
-    var onFail = this._onVideoplazaError.bind(this);
-    this.adCall.requestAds(this.contentMeta, this.requestSettings, onSuccess, onFail);
+    // TODO: block until ad hasData?
+    this._showNextAd(ad);
 };
 
 /**
@@ -662,12 +630,12 @@ VASTAdPlayer.prototype._checkForMidroll = function _checkForMidroll() {
     if (this.adPlaying) {
         return false;
     }
-    if (this.midrolls.length === 0) {
+    if (this.breaks.length === 0) {
         return false;
     }
     var potentialMidroll = null;
-    for (var i = 0, l = this.midrolls.length; i < l; i++) {
-        if (this.midrolls[i] > this.player.currentTime) {
+    for (var i = 0, l = this.breaks.length; i < l; i++) {
+        if (this.breaks[i]["position"] > this.player.currentTime) {
             break;
         }
         potentialMidroll = i;
@@ -675,7 +643,7 @@ VASTAdPlayer.prototype._checkForMidroll = function _checkForMidroll() {
     if (potentialMidroll !== null && potentialMidroll !== this.lastPlayedMidroll) {
         this.log('playing overdue midroll ' + potentialMidroll);
         this.lastPlayedMidroll = potentialMidroll;
-        this._runAds('position', true);
+        this._runAds('position', this.breaks[potentialMidroll]);
 
         return true;
     }

@@ -55,19 +55,7 @@
     };
     ads.setCompanionHandler(companion);
 
-    // Set meta information about currently playing content
-    // TODO: how is this set for VAST/VMAP?
-    vast.setContentMeta({
-        category: "validation",
-        tags: ["standard"],
-        flags: [],
-        contentForm: "shortForm",
-        contentId: "1234",
-        contentPartner: "blabla_test",
-        duration: 123
-    });
-
-    // skiptime is dealt with using skipOffset
+    // skiptime is dealt with using skipOffset attribute for Linears
     // Allow the user to skip ads longer than 'skiptime' seconds
     var skip = document.getElementById('skip');
     skip.onclick = function () {
