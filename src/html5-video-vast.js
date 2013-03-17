@@ -15,6 +15,7 @@ function VASTAdPlayer(debug) {
         insertionPointType: null,
         playbackPosition: null
     };
+    this.unsentTrackingPoints = [];
     this.activeAd = null;
     this.adPlaying = false;
     this.adsEnabled = true;
@@ -38,6 +39,30 @@ function VASTAdPlayer(debug) {
 
     this._bindContextForCallbacks();
 }
+
+/**
+ * Loads the VMAP resource at the given URL and schedules ads to be played
+ * according to the resource
+ *
+ * TODO: Implement
+ *
+ * @param {string} url The VMAP url
+ */
+VASTAdPlayer.prototype.loadVMAP = function(url) {
+};
+
+/**
+ * Loads the given VAST resource and schedules the contained ads to be played at
+ * the given position
+ *
+ * TODO: Implement
+ *
+ * @param {string} position The positition to play the loaded ads at. Should be
+ *                          one of start, end, HH:MM:SS or XX%
+ * @param {string} url The VAST resource URL
+ */
+VASTAdPlayer.prototype.loadVAST = function(position, url) {
+};
 
 VASTAdPlayer.prototype.log = function log() {
     if (this.debug && console.log && console.log.apply) {
@@ -102,7 +127,7 @@ VASTAdPlayer.prototype.setAdsEnabled = function setAdsEnabled(enabled) {
  *
  * If the argument to this function is not a function, the existing handler will be cleared
  *
- * @param {?function(object): boolean} companionHandlerCallback
+ * @param {?function(VASTCompanion): boolean} companionHandlerCallback
  *   Function to call when companion banners are to be displayed.
  */
 VASTAdPlayer.prototype.setCompanionHandler = function setCompanionHandler(companionHandlerCallback) {
@@ -254,6 +279,10 @@ VASTAdPlayer.prototype._release = function _release() {
  * @return {boolean} Whether another ad was played or not
  */
 VASTAdPlayer.prototype._showNextAd = function _showNextAd(first) {
+    if (this.adVideo !== null && this.adPlaying) {
+        this.activeAd.linear.track('complete', this.player.currentTime, this.adVideo.src);
+    }
+
     if (first instanceof VASTAd) {
         this.activeAd = first;
     } else {
@@ -280,14 +309,15 @@ VASTAdPlayer.prototype._showNextAd = function _showNextAd(first) {
 
     this.adVideo = null;
 
-    // TODO: Adapt this for VAST
     if (this.activeAd.linear) {
         this.adVideo = this.activeAd.linear.getBestMedia(this.requestSettings);
         this.log('found linear', this.adVideo);
     }
 
-    for (var i = 0; i < this.activeAd.companions.length; i++) {
-        var c = this.activeAd.companions[i];
+    var companions = this.activeAd.getCompanions();
+
+    for (var i = 0; i < companions.length; i++) {
+        var c = companions[i];
         this.log('found companion', c);
         if (!this._showCompanionBanner(c)) {
             this.logError("VASTAdPlayer error: no way of displaying companion ad");
@@ -300,12 +330,14 @@ VASTAdPlayer.prototype._showNextAd = function _showNextAd(first) {
         return this._showNextAd();
     }
 
+    // TODO: Nonlinears
+
     this._playVideoAd();
     return true;
 };
 
 /**
- * Show the given companion banner
+ * Show the given companion banner by calling the companionHandler function
  *
  * @param {VASTCompanion} companion The companion banner to display
  * @return {boolean} Whether the companion banner was successfully shown
@@ -316,14 +348,8 @@ VASTAdPlayer.prototype._showCompanionBanner = function _showCompanionBanner(comp
         return false;
     }
 
-    // TODO: handle different resource types here
-    var cb = '<iframe scrolling="no" frameborder="0" ' +
-        'width="' + companion.width + '" ' +
-        'height="' + companion.height + '" ' +
-        'src="' + companion.resource + '"></iframe>';
-
-    if (this.companionHandler(cb, companion.zoneId, companion.width, companion.height)) {
-        this.tracker.track(companion, this.trackingEvents.creative.creativeView);
+    if (this.companionHandler(companion)) {
+        companion.track('creativeView');
         return true;
     }
 
@@ -338,7 +364,7 @@ VASTAdPlayer.prototype._showCompanionBanner = function _showCompanionBanner(comp
  * @param {string} message A message describing the error
  */
 VASTAdPlayer.prototype._onVASTError = function _onVASTError(message) {
-    this.logError('VAST error: ' + message);
+    this.logError('VASTAdPlayer error: ' + message);
     this._resumeOriginalVideo();
 };
 
@@ -370,18 +396,15 @@ VASTAdPlayer.prototype._runAds = function _runAds(insertionPoint, ad) {
 
 /**
  * Callback for tracking when an ad starts playing or resumes
- * TODO: Track using this.activeAd.track
  */
 VASTAdPlayer.prototype._onAdPlay = function _onAdPlay() {
     if (!this.adPlaying) {
         this.log('ad started playing');
-        this.tracker.track(this.ad, this.trackingEvents.ad.impression);
-        this.tracker.track(this.adVideo, this.trackingEvents.creative.creativeView);
-        this.tracker.track(this.adVideo, this.trackingEvents.creative.start);
+        this.activeAd.linear.track('start', 0, this.adVideo.src);
     } else {
         // resume
         this.log('ad resumed');
-        this.tracker.track(this.adVideo, this.trackingEvents.creative.resume);
+        this.activeAd.linear.track('resume', this.player.currentTime, this.adVideo.src);
     }
 
     this.adPlaying = true;
@@ -390,14 +413,16 @@ VASTAdPlayer.prototype._onAdPlay = function _onAdPlay() {
 /**
  * Ad click handler
  *
- * TODO: Adapt
- *
  * @param {Event} e Click event
  */
 VASTAdPlayer.prototype._onAdClick = function _onAdClick(e) {
-    this.log('ad click through to ' + this.adVideo.clickThroughUri);
-    this.tracker.track(this.adVideo, this.trackingEvents.creative.clickThrough);
-    window.open(this.adVideo.clickThroughUri, '_blank');
+    this.activeAd.linear.track('click');
+    var url = this.activeAd.linear.getClickThrough();
+
+    if (url) {
+        this.log('ad click through to ' + url);
+        window.open(url, '_blank');
+    }
 
     this.player.controls = true;
     this.player.pause();
@@ -413,34 +438,27 @@ VASTAdPlayer.prototype._onAdClick = function _onAdClick(e) {
 
 /**
  * Track progress on ad playback
- *
- * TODO: Adapt to use VASTAd.track and getTrackingPoints
  */
 VASTAdPlayer.prototype._onAdTick = function _onAdTick() {
     if (!(this.player && this.adVideo && this.adPlaying)) {
         this.log('Player or ad video not ready');
         return false;
     }
-    var percent = this.player.currentTime / this.adVideo.duration;
-    if (this.unsentQuartiles.length && percent > this.unsentQuartiles[0]) {
-        var q = this.unsentQuartiles.shift();
-        switch (q) {
-            case 0.25:
-                this.log('logged first quartile');
-                this.tracker.track(this.adVideo, this.trackingEvents.creative.firstQuartile);
-                break;
-            case 0.5:
-                this.log('logged midpoint');
-                this.tracker.track(this.adVideo, this.trackingEvents.creative.midpoint);
-                break;
-            case 0.75:
-                this.log('logged third quartile');
-                this.tracker.track(this.adVideo, this.trackingEvents.creative.thirdQuartile);
-                break;
-            case 0.99:
-                this.log('logged last quartile');
-                this.tracker.track(this.adVideo, this.trackingEvents.creative.complete);
-                break;
+
+    var time = this.player.currentTime;
+    var percent = time / this.adVideo.duration;
+
+    for (var i = 0, l = this.unsentTrackingPoints.length; i < l; i++) {
+        var p = this.unsentTrackingPoints[i]["offset"];
+        var passed = false;
+        if (typeof p === 'number') {
+            passed = p >= time;
+        }
+        if (p.indexOf('%') > -1) {
+            passed = parseInt(p, 10) >= percent;
+        }
+        if (passed) {
+            this.activeAd.linear.track(this.unsentTrackingPoints[i]["event"], time, this.adVideo.src);
         }
     }
 
@@ -506,17 +524,17 @@ VASTAdPlayer.prototype._onAdError = function _onAdError(e) {
 /**
  * Play the current video ad
  *
- * TODO: Adapt
+ * TODO: skipHandler should be called only after skipOffset if present?
  */
 VASTAdPlayer.prototype._playVideoAd = function _playVideoAd() {
     this.log('playing ad', this.adVideo);
-    this.unsentQuartiles = [0.25, 0.5, 0.75, 0.99];
+    this.unsentTrackingPoints = this.activeAd.linear.getTrackingPoints();
 
     if (typeof this.skipHandler.start === 'function') {
         this.skipHandler.start.call(this, this.adVideo.duration);
     }
 
-    this.player.setAttribute('src', this.adVideo.mediaFiles[0].uri);
+    this.player.setAttribute('src', this.adVideo.src);
     this.player.load();
 };
 
@@ -524,6 +542,7 @@ VASTAdPlayer.prototype._playVideoAd = function _playVideoAd() {
  * Called when the ad has loaded and can be played
  */
 VASTAdPlayer.prototype._onAdCanPlay = function _onAdCanPlay() {
+    this.activeAd.linear.track('creativeView');
     this.player.play();
     this.player.currentTime = 0;
 };
@@ -623,8 +642,6 @@ VASTAdPlayer.prototype._checkForPreroll = function _checkForPreroll() {
  * and finding the latest timestamp which has been passed.
  * If the last midroll shown was not the one we last passed, then we
  * show that one.
- *
- * TODO: Adapt based on getTrackingPoints
  */
 VASTAdPlayer.prototype._checkForMidroll = function _checkForMidroll() {
     if (this.adPlaying) {
@@ -633,6 +650,7 @@ VASTAdPlayer.prototype._checkForMidroll = function _checkForMidroll() {
     if (this.breaks.length === 0) {
         return false;
     }
+
     var potentialMidroll = null;
     for (var i = 0, l = this.breaks.length; i < l; i++) {
         if (this.breaks[i]["position"] > this.player.currentTime) {
