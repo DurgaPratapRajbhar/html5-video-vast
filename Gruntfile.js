@@ -13,8 +13,9 @@ module.exports = function (grunt) {
                     ' Licensed <%= _.pluck(pkg.licenses, "type").join(", ") %> */\n'
             },
             build: {
-                src: 'src/html5-video-vast.js',
-                dest: 'dist/<%= pkg.name %>-<%= pkg.version %>.min.js'
+                files: {
+                    'dist/<%= pkg.name %>-<%= pkg.version %>.min.js': ['lib/vast-vmap/src/vast-vmap.js', 'src/html5-video-vast.js']
+                }
             }
         },
         jshint: {

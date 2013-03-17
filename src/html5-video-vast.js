@@ -1,4 +1,6 @@
 /* jshint sub:true */
+/* global VASTAds, VASTAd, VASTLinear, VASTCompanion, VASTNonLinear */
+/* global VASTCreative */
 
 /**
  * Create a new VAST integration
