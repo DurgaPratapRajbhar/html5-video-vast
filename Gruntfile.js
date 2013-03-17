@@ -13,7 +13,7 @@ module.exports = function (grunt) {
                     ' Licensed <%= _.pluck(pkg.licenses, "type").join(", ") %> */\n'
             },
             build: {
-                src: 'src/videoplaza-html5.js',
+                src: 'src/html5-video-vast.js',
                 dest: 'dist/<%= pkg.name %>-<%= pkg.version %>.min.js'
             }
         },

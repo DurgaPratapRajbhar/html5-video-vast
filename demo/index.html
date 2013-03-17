@@ -1,12 +1,12 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>VideoPlaza HTML5 video ads</title>
+    <title>VAST HTML5 video ads</title>
     <link href="styles.css" rel="stylesheet" type="text/css" />
     <meta name="viewport" content="width=device-width">
 </head>
 <body>
-<h1>Videoplaza HTML5 integration demo</h1>
+<h1>VAST HTML5 integration demo</h1>
 <div id="v">
     <video id="player" controls preload="none" poster="http://video-js.zencoder.com/oceans-clip.jpg">
         <source id='mp4' src="http://video-js.zencoder.com/oceans-clip.mp4" type='video/mp4'>
@@ -17,18 +17,26 @@
 <div style="text-align: center;">
     <div id="companionMpu"></div>
 </div>
-<script src="http://vp-validation.cdn.videoplaza.tv/resources/html5-sdk/1/0.12.9.0-ea/html5-sdk-1.0.12.9.0-ea.min.js"></script>
+<script src="../lib/vast-vmap/src/vast-vmap.js"></script>
 <script src="../src/videoplaza-html5.js"></script>
 <script>
 
-    // Set up our connection with Videoplaza
-    var vp = new VideoplazaAds('http://vp-validation.videoplaza.tv', true);
+    // Set up
+    var ads = new VASTAdPlayer(true);
     // Optionally disable ads
-    //vp.setAdsEnabled(false);
+    //ads.setAdsEnabled(false);
 
-    // We should ignore events sent while Videoplaza ads have taken over the player
+    // Load ADS using VMAP or load VAST directly and map to positions
+    ads.loadVMAP('vmap.xml');
+    ads.loadVAST('start', 'start.xml');
+    ads.loadVAST('00:00:10', 'start.xml');
+    ads.loadVAST('00:00:30', 'start.xml');
+    ads.loadVAST('00:00:60', 'start.xml');
+    ads.loadVAST('end', 'start.xml');
+
+    // We should ignore events sent while ads are active
     var actOnEvents = true;
-    vp.setTakeoverCallbacks(
+    ads.setTakeoverCallbacks(
             function (player) {
                 console.log('-- front -- ignore events', player);
                 actOnEvents = false;
@@ -45,13 +53,11 @@
         document.getElementById(zone).innerHTML = cb;
         return true;
     };
-    vp.setCompanionHandler(companion);
-
-    // Set times for midrolls
-    vp.setMidrolls([10, 40, 60]);
+    ads.setCompanionHandler(companion);
 
     // Set meta information about currently playing content
-    vp.setContentMeta({
+    // TODO: how is this set for VAST/VMAP?
+    vast.setContentMeta({
         category: "validation",
         tags: ["standard"],
         flags: [],
@@ -61,13 +67,13 @@
         duration: 123
     });
 
+    // skiptime is dealt with using skipOffset
     // Allow the user to skip ads longer than 'skiptime' seconds
-    var skiptime = 5;
     var skip = document.getElementById('skip');
     skip.onclick = function () {
-        vp.skipCurrentAd();
+        ads.skipCurrentAd();
     };
-    vp.setSkipHandler(function (adDuration) {
+    ads.setSkipHandler(function (adDuration) {
         if (adDuration > skiptime) {
             skip.style.display = 'block';
         } else {
@@ -79,8 +85,8 @@
 
     // Set video properties (dimensions) and watch our player
     var player = document.getElementById('player');
-    vp.setVideoProperties(player.clientWidth || player.offsetWidth, player.clientHeight || player.offsetHeight);
-    vp.watchPlayer(player);
+    ads.setVideoProperties(player.clientWidth || player.offsetWidth, player.clientHeight || player.offsetHeight);
+    ads.watchPlayer(player);
 
     // Example of how to listen for "real" video events
     if (typeof player.addEventListener === 'function') {

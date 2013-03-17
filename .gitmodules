@@ -1,0 +1,3 @@
+[submodule "lib/vast-vmap"]
+	path = lib/vast-vmap
+	url = git://github.com/Jonhoo/vast-vmap.git

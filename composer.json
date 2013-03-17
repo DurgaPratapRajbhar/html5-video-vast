@@ -1,6 +1,6 @@
 {
-    "name": "aptoma/videoplaza-html5",
-    "description": "Plugin for Videoplaza HTML5 video ad solution",
+    "name": "jonhoo/html5-video-vast",
+    "description": "Plugin for HTML5 video using VAST for ad provisioning",
     "minimum-stability": "dev",
     "authors": [
         {

@@ -1,14 +1,11 @@
-/*global videoplaza */
-
 /**
- * Create a new VideoplazaAds integration
+ * Create a new VAST integration
  *
  * @class
- * @param {string} vpHost Videoplaza Host URL
  * @param debug
  */
-function VideoplazaAds(vpHost, debug) {
-    this.vpHost = vpHost;
+function VASTAdPlayer(debug) {
+    // TODO: Check that all of these are used
     this.requestSettings = {
         width: null,
         height: null,
@@ -18,8 +15,8 @@ function VideoplazaAds(vpHost, debug) {
     };
     this.adPlaying = false;
     this.adsEnabled = true;
-    this.midrolls = [];
-    this.lastPlayedMidroll = null;
+    this.breaks = [];
+    this.lastPlayedBreak = null;
     this.debug = !!debug;
     this.skipHandler = {
         start: null,
@@ -37,18 +34,15 @@ function VideoplazaAds(vpHost, debug) {
     this._clickEvent = navigator.userAgent.match(/iPad/i) ? 'touchstart' : 'click';
 
     this._bindContextForCallbacks();
-    this.adCall = new videoplaza.core.AdCallModule(vpHost);
-    this.tracker = new videoplaza.core.Tracker();
-    this.trackingEvents = videoplaza.core.Tracker.trackingEvents;
 }
 
-VideoplazaAds.prototype.log = function log() {
+VASTAdPlayer.prototype.log = function log() {
     if (this.debug && console.log && console.log.apply) {
         console.log.apply(console, arguments);
     }
 };
 
-VideoplazaAds.prototype.logError = function logError() {
+VASTAdPlayer.prototype.logError = function logError() {
     if (console.error && console.error.apply) {
         console.error.apply(console, arguments);
     } else {
@@ -64,7 +58,7 @@ VideoplazaAds.prototype.logError = function logError() {
  * @param {function(adDuration : int)} onAdStarted Called whenever a new video ad is started
  * @param {function} onAdEnded Called when a series of ads has finished
  */
-VideoplazaAds.prototype.setSkipHandler = function setSkipHandler(onAdStarted, onAdEnded) {
+VASTAdPlayer.prototype.setSkipHandler = function setSkipHandler(onAdStarted, onAdEnded) {
     this.skipHandler.start = onAdStarted;
     this.skipHandler.end = onAdEnded;
 };
@@ -75,7 +69,7 @@ VideoplazaAds.prototype.setSkipHandler = function setSkipHandler(onAdStarted, on
  * @param onRelease
  * @param onTakeover
  */
-VideoplazaAds.prototype.setTakeoverCallbacks = function setTakeoverCallbacks(onTakeover, onRelease) {
+VASTAdPlayer.prototype.setTakeoverCallbacks = function setTakeoverCallbacks(onTakeover, onRelease) {
     this.takeoverCallbacks.onTakeover = onTakeover;
     this.takeoverCallbacks.onRelease = onRelease;
 };
@@ -83,7 +77,7 @@ VideoplazaAds.prototype.setTakeoverCallbacks = function setTakeoverCallbacks(onT
 /**
  * Call this method to skip the currently playing ad
  */
-VideoplazaAds.prototype.skipCurrentAd = function skipCurrentAd() {
+VASTAdPlayer.prototype.skipCurrentAd = function skipCurrentAd() {
     this._showNextAd();
 };
 
@@ -92,7 +86,7 @@ VideoplazaAds.prototype.skipCurrentAd = function skipCurrentAd() {
  *
  * @param {boolean} enabled Whether to enabled ads or not
  */
-VideoplazaAds.prototype.setAdsEnabled = function setAdsEnabled(enabled) {
+VASTAdPlayer.prototype.setAdsEnabled = function setAdsEnabled(enabled) {
     this.adsEnabled = enabled;
 };
 
@@ -108,27 +102,42 @@ VideoplazaAds.prototype.setAdsEnabled = function setAdsEnabled(enabled) {
  * @param {?function(object): boolean} companionHandlerCallback
  *   Function to call when companion banners are to be displayed.
  */
-VideoplazaAds.prototype.setCompanionHandler = function setCompanionHandler(companionHandlerCallback) {
+VASTAdPlayer.prototype.setCompanionHandler = function setCompanionHandler(companionHandlerCallback) {
     this.companionHandler = companionHandlerCallback;
 };
 
 /**
- * Set where midrolls should occur
+ * Callback for when a new ad break has been fetched
  *
- * @param {Number[]} midrolls Timecodes (in seconds) for when midrolls should be triggered
+ * @param {number} i Ad break index (not used)
+ * @param {string} position Ad break position (% or HH:MM:SS)
+ * @param {VASTAd} ad The VAST ad(s) to display for the given break
  */
-VideoplazaAds.prototype.setMidrolls = function setMidrolls(midrolls) {
-    if (typeof midrolls === typeof []) {
-        midrolls.sort(function (a, b) {
-            return a - b;
-        });
+VASTAdPlayer.prototype._onAdBreakFetched = function (i, position, ad) {
+    var p = VASTCreative.prototype.timecodeFromString(position);
+    if (p.indexOf('%') > -1) {
+        p = parseInt(position, 10);
+        if (this.player && this.player.duration) {
+            p = p * this.player.duration / 100;
+        } else {
+            this.logError("VASTAdPlayer error: fractional position given, but video does not have duration");
+            return;
+        }
     }
-    this.midrolls = midrolls;
-    this.lastPlayedMidroll = null;
+
+    this.breaks.push({
+        position: position,
+        ad: ad
+    });
+    this.breaks.sort(function (a, b) {
+        return a.position - b.position;
+    });
 };
 
 /**
  * Set meta data to send to Videoplaza when requesting ads
+ *
+ * TODO: Deal with this for VAST sources?
  *
  * @param {object} meta Meta data about the video being displayed
  * @param {string} meta.category Videoplaza Karbon content category for targeting
@@ -139,7 +148,7 @@ VideoplazaAds.prototype.setMidrolls = function setMidrolls(midrolls) {
  * @param {string[]} meta.tags Flags to override ad insertion policies
  * @param {string[]} meta.flags Content keywords for targeting
  */
-VideoplazaAds.prototype.setContentMeta = function setContentMeta(meta) {
+VASTAdPlayer.prototype.setContentMeta = function setContentMeta(meta) {
     this.contentMeta = meta;
 };
 
@@ -150,7 +159,7 @@ VideoplazaAds.prototype.setContentMeta = function setContentMeta(meta) {
  * @param {Number} height Height of the video frame
  * @param {Number} [bitrate] The maximum bitrate (in Kbps) of the ad
  */
-VideoplazaAds.prototype.setVideoProperties = function setVideoProperties(width, height, bitrate) {
+VASTAdPlayer.prototype.setVideoProperties = function setVideoProperties(width, height, bitrate) {
     this.requestSettings.width = width;
     this.requestSettings.height = height;
     this.requestSettings.bitrate = bitrate;
@@ -164,7 +173,7 @@ VideoplazaAds.prototype.setVideoProperties = function setVideoProperties(width, 
  *
  * @return {Boolean}
  */
-VideoplazaAds.prototype._needControls = function _needContols() {
+VASTAdPlayer.prototype._needControls = function _needContols() {
     return navigator.userAgent.match(/iPad|iPod|iPhone|Android/);
 };
 
@@ -174,7 +183,7 @@ VideoplazaAds.prototype._needControls = function _needContols() {
  * This has to be done outside of the _listen-method in order to allow unbinding
  * of events.
  */
-VideoplazaAds.prototype._bindContextForCallbacks = function _bindContextForCallbacks() {
+VASTAdPlayer.prototype._bindContextForCallbacks = function _bindContextForCallbacks() {
     this._onAdPlay = this._onAdPlay.bind(this);
     this._onAdCanPlay = this._onAdCanPlay.bind(this);
     this._onAdClick = this._onAdClick.bind(this);
@@ -196,7 +205,7 @@ VideoplazaAds.prototype._bindContextForCallbacks = function _bindContextForCallb
  * @param {string} event Event to add a listener for
  * @param {function} callback Event callback
  */
-VideoplazaAds.prototype._listen = function _listen(element, event, callback) {
+VASTAdPlayer.prototype._listen = function _listen(element, event, callback) {
     element.addEventListener(event, callback, false);
 };
 
@@ -207,11 +216,11 @@ VideoplazaAds.prototype._listen = function _listen(element, event, callback) {
  * @param {string} event Event to remove a listener for
  * @param {function} callback Event callback to remove
  */
-VideoplazaAds.prototype._unlisten = function _unlisten(element, event, callback) {
+VASTAdPlayer.prototype._unlisten = function _unlisten(element, event, callback) {
     element.removeEventListener(event, callback, false);
 };
 
-VideoplazaAds.prototype._takeover = function _takeover() {
+VASTAdPlayer.prototype._takeover = function _takeover() {
     this.log('take over player');
     this.player.controls = false;
 
@@ -232,7 +241,7 @@ VideoplazaAds.prototype._takeover = function _takeover() {
     }
 };
 
-VideoplazaAds.prototype._release = function _release() {
+VASTAdPlayer.prototype._release = function _release() {
     this.log('release player');
     this.player.controls = true;
 
@@ -254,25 +263,13 @@ VideoplazaAds.prototype._release = function _release() {
 };
 
 /**
- * Called when ads are received from Videoplaza
- *
- * @param {object[]} ads The ads received
- */
-VideoplazaAds.prototype._onAdsReceived = function _onAdsReceived(ads) {
-    this.log('got ads', ads);
-    this.ads = ads;
-    this.adIndex = -1;
-    this._showNextAd();
-};
-
-/**
  * Show the next ad in the last received list of ads
  *
  * @return {boolean} Whether another ad was played or not
  */
-VideoplazaAds.prototype._showNextAd = function _showNextAd() {
-    this.adIndex++;
-    if (!this.adsEnabled || this.adIndex >= this.ads.length) {
+VASTAdPlayer.prototype._showNextAd = function _showNextAd() {
+    this.activeAd = this.activeAd.getNextAd();
+    if (!this.adsEnabled || this.activeAd === null) {
         this.log('no more ads');
 
         if (typeof this.skipHandler.end === 'function') {
@@ -283,9 +280,9 @@ VideoplazaAds.prototype._showNextAd = function _showNextAd() {
         return false;
     }
 
-    this.log('showing ad #' + this.adIndex);
-    this.ad = this.ads[this.adIndex];
+    this.log('showing next ad');
 
+    // TODO: Handle the different VAST creatives here
     switch (this.ad.type) {
         case 'standard_spot':
             this.log('found standard spot');
@@ -304,20 +301,16 @@ VideoplazaAds.prototype._showNextAd = function _showNextAd() {
 /**
  * Show the given companion banner
  *
- * @param {object} companion The companion banner to display
- * @param {string} companion.id Companion banner ID
- * @param {string} companion.resource Companion resource to display
- * @param {string} companion.resourceType Companion type
- * @param {object} companion.trackingUrls
- * @param {string} companion.type Always === 'companion'
+ * @param {VASTCompanion} companion The companion banner to display
  * @return {boolean} Whether the companion banner was successfully shown
  */
-VideoplazaAds.prototype._showCompanionBanner = function _showCompanionBanner(companion) {
+VASTAdPlayer.prototype._showCompanionBanner = function _showCompanionBanner(companion) {
     this.log('show companion banner', companion);
     if (typeof this.companionHandler !== 'function') {
         return false;
     }
 
+    // TODO: handle different resource types here
     var cb = '<iframe scrolling="no" frameborder="0" ' +
         'width="' + companion.width + '" ' +
         'height="' + companion.height + '" ' +
@@ -334,14 +327,15 @@ VideoplazaAds.prototype._showCompanionBanner = function _showCompanionBanner(com
 /**
  * Display all the given creatives
  *
- * Will play the last video in the list, and call showCompanion on every
- * creative with .type === 'companion'
+ * Will play the media file for the last Linear in the list, and call
+ * showCompanion on every Companion
  *
- * @param {object[]} creatives List of creatives to display
+ * @param {VASTAd} ad Ad to display contained creatives for
  */
-VideoplazaAds.prototype._displayAdCreatives = function _displayAdCreatives(creatives) {
+VASTAdPlayer.prototype._displayAdCreatives = function _displayAdCreatives(ad) {
     this.adVideo = null;
 
+    // TODO: Adapt this for VAST
     this.log('found ' + creatives.length + ' creatives for ad');
     for (var i = 0, l = creatives.length; i < l; i++) {
         if (creatives[i].id === 'video') {
@@ -365,14 +359,14 @@ VideoplazaAds.prototype._displayAdCreatives = function _displayAdCreatives(creat
 };
 
 /**
- * Should be called if Videoplaza encounters an error
+ * Should be called if VASTAds encounters an error
  *
  * Will log an error message and resume normal video playback
  *
  * @param {string} message A message describing the error
  */
-VideoplazaAds.prototype._onVideoplazaError = function _onVideoplazaError(message) {
-    this.logError('Videoplaza error: ' + message);
+VASTAdPlayer.prototype._onVASTError = function _onVASTError(message) {
+    this.logError('VAST error: ' + message);
     this._resumeOriginalVideo();
 };
 
@@ -380,10 +374,10 @@ VideoplazaAds.prototype._onVideoplazaError = function _onVideoplazaError(message
  * Fetches and displays ads
  *
  * @param {string} insertionPoint The type of ad to fetch
- *      May be one of: onBeforeContent, playbackPosition, onContentEnd, playbackTime, onSeek
+ *      May be one of: start, position, end
  * @param {boolean} [includePosition] Whether to send the current video position
  */
-VideoplazaAds.prototype._runAds = function _runAds(insertionPoint, includePosition) {
+VASTAdPlayer.prototype._runAds = function _runAds(insertionPoint, includePosition) {
     this.player.pause();
     this._prepareAdPlayback();
     this.requestSettings.insertionPointType = insertionPoint;
@@ -394,6 +388,13 @@ VideoplazaAds.prototype._runAds = function _runAds(insertionPoint, includePositi
         this.requestSettings.playbackPosition = null;
     }
 
+    // No need to fetch ads, we (hopefully) already have them at this point
+    // TODO: Make work.
+    this.ads = ads;
+    this.adIndex = -1;
+    this._showNextAd();
+
+    // Old.
     var onSuccess = this._onAdsReceived.bind(this);
     var onFail = this._onVideoplazaError.bind(this);
     this.adCall.requestAds(this.contentMeta, this.requestSettings, onSuccess, onFail);
@@ -401,8 +402,9 @@ VideoplazaAds.prototype._runAds = function _runAds(insertionPoint, includePositi
 
 /**
  * Callback for tracking when an ad starts playing or resumes
+ * TODO: Track using this.activeAd.track
  */
-VideoplazaAds.prototype._onAdPlay = function _onAdPlay() {
+VASTAdPlayer.prototype._onAdPlay = function _onAdPlay() {
     if (!this.adPlaying) {
         this.log('ad started playing');
         this.tracker.track(this.ad, this.trackingEvents.ad.impression);
@@ -420,9 +422,11 @@ VideoplazaAds.prototype._onAdPlay = function _onAdPlay() {
 /**
  * Ad click handler
  *
+ * TODO: Adapt
+ *
  * @param {Event} e Click event
  */
-VideoplazaAds.prototype._onAdClick = function _onAdClick(e) {
+VASTAdPlayer.prototype._onAdClick = function _onAdClick(e) {
     this.log('ad click through to ' + this.adVideo.clickThroughUri);
     this.tracker.track(this.adVideo, this.trackingEvents.creative.clickThrough);
     window.open(this.adVideo.clickThroughUri, '_blank');
@@ -441,8 +445,10 @@ VideoplazaAds.prototype._onAdClick = function _onAdClick(e) {
 
 /**
  * Track progress on ad playback
+ *
+ * TODO: Adapt to use VASTAd.track and getTrackingPoints
  */
-VideoplazaAds.prototype._onAdTick = function _onAdTick() {
+VASTAdPlayer.prototype._onAdTick = function _onAdTick() {
     if (!(this.player && this.adVideo && this.adPlaying)) {
         this.log('Player or ad video not ready');
         return false;
@@ -478,7 +484,7 @@ VideoplazaAds.prototype._onAdTick = function _onAdTick() {
  *
  * @return {boolean} Whether player needed to be prepared
  */
-VideoplazaAds.prototype._prepareAdPlayback = function _prepareAdPlayback() {
+VASTAdPlayer.prototype._prepareAdPlayback = function _prepareAdPlayback() {
     this.log('told to create ad player');
     if (this.adPlaying) {
         return false;
@@ -504,7 +510,8 @@ VideoplazaAds.prototype._prepareAdPlayback = function _prepareAdPlayback() {
     return false;
 };
 
-VideoplazaAds.prototype._onAdError = function _onAdError(e) {
+// TODO: Fix for VAST?
+VASTAdPlayer.prototype._onAdError = function _onAdError(e) {
     if (e.target.error) {
         switch (e.target.error.code) {
             case e.target.error.MEDIA_ERR_ABORTED:
@@ -530,8 +537,10 @@ VideoplazaAds.prototype._onAdError = function _onAdError(e) {
 
 /**
  * Play the current video ad
+ *
+ * TODO: Adapt
  */
-VideoplazaAds.prototype._playVideoAd = function _playVideoAd() {
+VASTAdPlayer.prototype._playVideoAd = function _playVideoAd() {
     this.log('playing ad', this.adVideo);
     this.unsentQuartiles = [0.25, 0.5, 0.75, 0.99];
 
@@ -546,7 +555,7 @@ VideoplazaAds.prototype._playVideoAd = function _playVideoAd() {
 /**
  * Called when the ad has loaded and can be played
  */
-VideoplazaAds.prototype._onAdCanPlay = function _onAdCanPlay() {
+VASTAdPlayer.prototype._onAdCanPlay = function _onAdCanPlay() {
     this.player.play();
     this.player.currentTime = 0;
 };
@@ -554,7 +563,7 @@ VideoplazaAds.prototype._onAdCanPlay = function _onAdCanPlay() {
 /**
  * Called when ad is clicked after clicktrough
  */
-VideoplazaAds.prototype._onAdClickToResume = function _onAdClickToResume() {
+VASTAdPlayer.prototype._onAdClickToResume = function _onAdClickToResume() {
     this.log('-- click to resume');
     this.player.play();
 };
@@ -562,7 +571,7 @@ VideoplazaAds.prototype._onAdClickToResume = function _onAdClickToResume() {
 /**
  * Called when the video has loaded and can be played
  */
-VideoplazaAds.prototype._onVideoCanPlay = function _onVideoCanPlay() {
+VASTAdPlayer.prototype._onVideoCanPlay = function _onVideoCanPlay() {
     if (this._playerState.timeToResume === 0 || this._playerState.timeToResume === null) {
         this.player.play();
         return;
@@ -590,7 +599,7 @@ VideoplazaAds.prototype._onVideoCanPlay = function _onVideoCanPlay() {
 /**
  * Resumes normal video playback and releases event capturing
  */
-VideoplazaAds.prototype._resumeOriginalVideo = function _resumeOriginalVideo() {
+VASTAdPlayer.prototype._resumeOriginalVideo = function _resumeOriginalVideo() {
     this.log('resuming watched player', this._playerState);
     if (this.player && !this._playerState.ended) {
         if (this.player.src === this._playerState.originalSrc || !this._playerState.originalSrc) {
@@ -618,7 +627,7 @@ VideoplazaAds.prototype._resumeOriginalVideo = function _resumeOriginalVideo() {
  * @see http://stackoverflow.com/questions/2490825/how-to-trigger-event-in-javascript
  * @param {string} eType Event type to trigger
  */
-VideoplazaAds.prototype._triggerVideoEvent = function _triggerVideoEvent(eType) {
+VASTAdPlayer.prototype._triggerVideoEvent = function _triggerVideoEvent(eType) {
     if (!this.player) {
         return;
     }
@@ -632,9 +641,9 @@ VideoplazaAds.prototype._triggerVideoEvent = function _triggerVideoEvent(eType) 
 /**
  * Shows a preroll if a preroll should be played
  */
-VideoplazaAds.prototype._checkForPreroll = function _checkForPreroll() {
+VASTAdPlayer.prototype._checkForPreroll = function _checkForPreroll() {
     if (!this.hasShownPreroll) {
-        this._runAds('onBeforeContent');
+        this._runAds('start');
         this.hasShownPreroll = true;
     }
 };
@@ -646,8 +655,10 @@ VideoplazaAds.prototype._checkForPreroll = function _checkForPreroll() {
  * and finding the latest timestamp which has been passed.
  * If the last midroll shown was not the one we last passed, then we
  * show that one.
+ *
+ * TODO: Adapt based on getTrackingPoints
  */
-VideoplazaAds.prototype._checkForMidroll = function _checkForMidroll() {
+VASTAdPlayer.prototype._checkForMidroll = function _checkForMidroll() {
     if (this.adPlaying) {
         return false;
     }
@@ -664,7 +675,7 @@ VideoplazaAds.prototype._checkForMidroll = function _checkForMidroll() {
     if (potentialMidroll !== null && potentialMidroll !== this.lastPlayedMidroll) {
         this.log('playing overdue midroll ' + potentialMidroll);
         this.lastPlayedMidroll = potentialMidroll;
-        this._runAds('playbackPosition', true);
+        this._runAds('position', true);
 
         return true;
     }
@@ -675,10 +686,10 @@ VideoplazaAds.prototype._checkForMidroll = function _checkForMidroll() {
 /**
  * Shows a postroll if a postroll should be played
  */
-VideoplazaAds.prototype._checkForPostroll = function _checkForPostroll() {
+VASTAdPlayer.prototype._checkForPostroll = function _checkForPostroll() {
     if (!this.hasShownPostroll) {
         this.hasShownPostroll = true;
-        this._runAds('onContentEnd');
+        this._runAds('end');
     }
 };
 
@@ -697,7 +708,7 @@ VideoplazaAds.prototype._checkForPostroll = function _checkForPostroll() {
  * @param {Node} videoElement The video element to watch
  * @return {boolean} False if videoElement is not a video element, true otherwise
  */
-VideoplazaAds.prototype.watchPlayer = function watchPlayer(videoElement) {
+VASTAdPlayer.prototype.watchPlayer = function watchPlayer(videoElement) {
     this.log('told to watch player', videoElement);
 
     if (videoElement.tagName.toLowerCase() !== 'video') {
