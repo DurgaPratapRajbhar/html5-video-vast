@@ -46,24 +46,28 @@ function VASTAdPlayer(debug) {
  * Loads the VMAP resource at the given URL and schedules ads to be played
  * according to the resource
  *
- * TODO: Implement
- *
  * @param {string} url The VMAP url
  */
 VASTAdPlayer.prototype.loadVMAP = function(url) {
+    this.breaks = [];
+
+    var adHandler = this._onAdBreakFetched.bind(this);
+
+    // TODO: store VMAP object to track breakpoints regardless of ads
+    new VMAP(server, adHandler);
 };
 
 /**
  * Loads the given VAST resource and schedules the contained ads to be played at
  * the given position
  *
- * TODO: Implement
- *
  * @param {string} position The positition to play the loaded ads at. Should be
  *                          one of start, end, HH:MM:SS or XX%
  * @param {string} url The VAST resource URL
  */
 VASTAdPlayer.prototype.loadVAST = function(position, url) {
+    var onFetched = this._onAdBreakFetched.bind(this, -1, position);
+    queryVAST(url, onFetched);
 };
 
 VASTAdPlayer.prototype.log = function log() {
@@ -85,7 +89,8 @@ VASTAdPlayer.prototype.logError = function logError() {
  *
  * This should be used to handle the displaying of a skip button
  *
- * @param {function(adDuration : int)} onAdStarted Called whenever a new video ad is started
+ * @param {function} onAdStarted Called when and if the currently playing linear
+ *                               ad can be skipped
  * @param {function} onAdEnded Called when a series of ads has finished
  */
 VASTAdPlayer.prototype.setSkipHandler = function setSkipHandler(onAdStarted, onAdEnded) {
@@ -160,6 +165,13 @@ VASTAdPlayer.prototype._onAdBreakFetched = function (i, position, ad) {
         ad: ad
     });
     this.breaks.sort(function (a, b) {
+        // Sort strings first, then numbers in increasing order
+        if (typeof a.position === 'string' && typeof b.position === 'string') {
+            return 0;
+        }
+        if (typeof a.postition === 'string' || typeof b.position === 'string') {
+            return typeof a.position === 'string' ? -1 : 1;
+        }
         return a.position - b.position;
     });
 };
@@ -285,7 +297,7 @@ VASTAdPlayer.prototype._showNextAd = function _showNextAd(first) {
         this.activeAd.linear.track('complete', this.player.currentTime, this.adVideo.src);
     }
 
-    if (first instanceof VASTAd) {
+    if (first instanceof VASTAd || first === null) {
         this.activeAd = first;
     } else {
         this.activeAd = this.activeAd.getNextAd();
@@ -386,12 +398,18 @@ VASTAdPlayer.prototype._runAds = function _runAds(insertionPoint, ad) {
     switch (insertionPoint) {
         case 'start':
         case 'end':
-            // TODO: Find start/end ad
             ad = null;
+            for (var i = 0, l = this.breaks.length; i < l; i++) {
+                if (this.breaks[i].position === insertionPoint) {
+                    ad = this.breaks[i].ad;
+                    break;
+                }
+            }
             break;
         case 'position':
             break;
     }
+
     // TODO: block until ad hasData?
     this._showNextAd(ad);
 };
@@ -464,6 +482,15 @@ VASTAdPlayer.prototype._onAdTick = function _onAdTick() {
         }
     }
 
+    var so = this.activeAd.linear.attr('skipoffset', null);
+    if (so !== null && so >= time) {
+        if (typeof this.skipHandler.start === 'function') {
+            this.skipHandler.start.call(this);
+        } else {
+            this.log('VASTAdPlayer: Skippable ad, but no skipHandler defined');
+        }
+    }
+
     return true;
 };
 
@@ -525,16 +552,10 @@ VASTAdPlayer.prototype._onAdError = function _onAdError(e) {
 
 /**
  * Play the current video ad
- *
- * TODO: skipHandler should be called only after skipOffset if present?
  */
 VASTAdPlayer.prototype._playVideoAd = function _playVideoAd() {
     this.log('playing ad', this.adVideo);
     this.unsentTrackingPoints = this.activeAd.linear.getTrackingPoints();
-
-    if (typeof this.skipHandler.start === 'function') {
-        this.skipHandler.start.call(this, this.adVideo.duration);
-    }
 
     this.player.setAttribute('src', this.adVideo.src);
     this.player.load();
