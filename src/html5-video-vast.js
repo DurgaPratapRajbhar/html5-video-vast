@@ -198,7 +198,7 @@ VASTAdPlayer.prototype.setVideoProperties = function setVideoProperties(width, h
  * Most mobile devices has disabled autoplay, and need to have controls to
  * allow playback. Actual implementation of this method can be improved.
  *
- * @return {Boolean}
+ * @returns {Boolean}
  */
 VASTAdPlayer.prototype._needControls = function _needContols() {
     return navigator.userAgent.match(/iPad|iPod|iPhone|Android/);
@@ -293,7 +293,7 @@ VASTAdPlayer.prototype._release = function _release() {
  * Show the next ad in the last received list of ads
  *
  * @param {VASTAd} [first] An initial ad if we're starting a new ad sequence
- * @return {boolean} Whether another ad was played or not
+ * @returns {boolean} Whether another ad was played or not
  */
 VASTAdPlayer.prototype._showNextAd = function _showNextAd(first) {
     if (this.adVideo !== null && this.adPlaying) {
@@ -357,7 +357,7 @@ VASTAdPlayer.prototype._showNextAd = function _showNextAd(first) {
  * Show the given companion banner by calling the companionHandler function
  *
  * @param {VASTCompanion} companion The companion banner to display
- * @return {boolean} Whether the companion banner was successfully shown
+ * @returns {boolean} Whether the companion banner was successfully shown
  */
 VASTAdPlayer.prototype._showCompanionBanner = function _showCompanionBanner(companion) {
     this.log('show companion banner', companion);
@@ -505,7 +505,7 @@ VASTAdPlayer.prototype._onAdTick = function _onAdTick() {
 /**
  * Store state of original player and prepare for ad playback
  *
- * @return {boolean} Whether player needed to be prepared
+ * @returns {boolean} Whether player needed to be prepared
  */
 VASTAdPlayer.prototype._prepareAdPlayback = function _prepareAdPlayback() {
     this.log('told to create ad player');
@@ -722,7 +722,7 @@ VASTAdPlayer.prototype._checkForPostroll = function _checkForPostroll() {
  * .play() will be called.
  *
  * @param {Node} videoElement The video element to watch
- * @return {boolean} False if videoElement is not a video element, true otherwise
+ * @returns {boolean} False if videoElement is not a video element, true otherwise
  */
 VASTAdPlayer.prototype.watchPlayer = function watchPlayer(videoElement) {
     this.log('told to watch player', videoElement);
