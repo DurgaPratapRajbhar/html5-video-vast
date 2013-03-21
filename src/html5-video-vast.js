@@ -54,6 +54,9 @@ VASTAdPlayer.prototype.loadVMAP = function(url) {
     var adHandler = this._onAdBreakFetched.bind(this);
 
     // TODO: store VMAP object to track breakpoints regardless of ads
+    // This will require changes to _checkForMidroll so it checks *all* breaks,
+    // not just those received by _onAdBreakFetched. The index parameter should
+    // be used to merge here somehow...
     new VMAP(server, adHandler);
 };
 
@@ -344,7 +347,7 @@ VASTAdPlayer.prototype._showNextAd = function _showNextAd(first) {
         return this._showNextAd();
     }
 
-    // TODO: Nonlinears
+    // TODO: NonLinears
 
     this._playVideoAd();
     return true;
@@ -411,6 +414,11 @@ VASTAdPlayer.prototype._runAds = function _runAds(insertionPoint, ad) {
     }
 
     // TODO: block until ad hasData?
+    // Should we block until all ads have data?
+    // Perhaps this should be in the beginning of showNextAd instead?
+    // If we do block, we also somehow need to detect if the Wrapped content has
+    // been fetched, but there was an error, in which case the ad should be
+    // skipped.
     this._showNextAd(ad);
 };
 
@@ -525,7 +533,6 @@ VASTAdPlayer.prototype._prepareAdPlayback = function _prepareAdPlayback() {
     return false;
 };
 
-// TODO: Fix for VAST?
 VASTAdPlayer.prototype._onAdError = function _onAdError(e) {
     if (e.target.error) {
         switch (e.target.error.code) {

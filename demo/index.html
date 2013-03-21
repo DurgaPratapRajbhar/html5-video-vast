@@ -48,6 +48,7 @@
     );
 
     // Set our companion banner handler
+    // TODO: Adapt to work with VASTCompanion rather than multiple parameters
     var companion = function (cb, zone, width, height) {
         console.log('got companion banner for zone ' + zone + ' with dimensions ' + width + 'x' + height);
         document.getElementById(zone).innerHTML = cb;
@@ -55,18 +56,14 @@
     };
     ads.setCompanionHandler(companion);
 
-    // skiptime is dealt with using skipOffset attribute for Linears
-    // Allow the user to skip ads longer than 'skiptime' seconds
+    // Allow the user to skip long ads that are permitted to be skipped by the
+    // ad provider (using the skipOffset attribute from the VAST reply).
     var skip = document.getElementById('skip');
     skip.onclick = function () {
         ads.skipCurrentAd();
     };
-    ads.setSkipHandler(function (adDuration) {
-        if (adDuration > skiptime) {
-            skip.style.display = 'block';
-        } else {
-            skip.style.display = 'none';
-        }
+    ads.setSkipHandler(function () {
+        skip.style.display = 'block';
     }, function () {
         skip.style.display = 'none';
     });
